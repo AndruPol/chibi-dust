@@ -14,8 +14,8 @@ typedef enum {
 
 typedef struct _dust_read_t dust_read_t;
 struct _dust_read_t {
-	uint16_t raw;
 	float voltage;
+	uint16_t raw;
 };
 
 extern BinarySemaphore adcsem;
@@ -24,9 +24,7 @@ extern BinarySemaphore adcsem;
 extern "C" {
 #endif
 
-// инициализация датчика пыли
 void dust_init(void);
-// чтение значения датчика пыли
 dust_error_t dust_read(dust_read_t *value);
 
 #ifdef __cplusplus

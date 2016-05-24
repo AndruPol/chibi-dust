@@ -1,5 +1,5 @@
 /*
- * dust.c - Sharp GP2Y1010AU0F dust and smoke sensor ChibiOS driver
+ * dust.c - Sharp GP2Y1010AU0F dust and smoke sensor ChibiOS 2.6.10+ driver
  *
  *  Created on: 22.05.2016
  *      Author: Andrey Polyakov
@@ -10,6 +10,10 @@
  *
  * PERIPHERALS	MODES	REMAP	FUNCTIONS	PINS
  * ADC1			IN1		0		ADC1_IN1	PA1
+ * TIM3	Internal Clock	TIM3_VS_ClockSourceINT	VP_TIM3_VS_ClockSourceINT
+ *
+ * PA1	ADC1_IN1
+ * PB13	GPIO_Output	ILED
  */
 
 #include "dust.h"
@@ -24,15 +28,12 @@
  * -O2 : ~308uS ChibiOS debug ALL, ~295uS ChibiOS debug NO
  * ILED_LAST in 2-25
  */
-#define ILED_START_US			280		// datasheet = 280us
-#define ILED_LAST_US			2		// datasheet = 40us, 2-25 RTOS & compiler configuration
-#define ILED_SLEEP_US			9680
+#define ILED_START_US			280		// datasheet: 280us
+#define ILED_LAST_US			2		// datasheet: 40us, 2-25 RTOS & compiler configuration
+#define ILED_SLEEP_US			9680	// datasheet: 10mS = ILED_START_US + ILED_LAST_US + ILED_SLEEP_US
 
 #define DUST_TIMEOUT_MS			2
 #define ADC_TIMEOUT_US			10
-
-#define DUST_PRIO				(NORMALPRIO+1)
-static WORKING_AREA(waDUSTThread, 128);
 
 #define ILED_GPIO				GPIOB			// LED on/off
 #define ILED_PIN				GPIOB_PIN13		// LED on/off
@@ -43,22 +44,28 @@ static WORKING_AREA(waDUSTThread, 128);
 
 #define DUSTGPT					GPTD3		// Timer, precision interval
 
-BinarySemaphore adcsem;						// семафор управления доступом к ADC
-static BinarySemaphore dust_cbsem;			// семафор управления чтением ADC
-static adcsample_t samples[1];				// буфер чтения АЦП
-static volatile dust_error_t dust_error;	// ошибка чтения
+#define NUM_CHANNELS			1
+#define DUST_CH					0
+
+BinarySemaphore adcsem;						// ADC share semaphore
+static BinarySemaphore dust_cbsem;			// ADC read semaphore
+static adcsample_t samples[NUM_CHANNELS];	// ADC samples buffer
+static volatile dust_error_t dust_error;	// dust sensor error flag
 
 static void adccallback(ADCDriver *adcp, adcsample_t *buffer, size_t n);
 static void adcerrcallback(ADCDriver *adcp, adcerror_t err);
 
+#define DUST_PRIO				(NORMALPRIO+1)
+static WORKING_AREA(waDUSTThread, 128);
+
 /*
  * ADC conversion group.
  * Mode:        Linear buffer, 1 samples of 1 channel, SW triggered.
- * Channels:    IN1 (7.5 cycles sampling time)
+ * Channels:    IN1 (1.5 cycles sampling time)
  */
 static const ADCConversionGroup adcgrpcfg = {
   FALSE,			//circular
-  1,				//number of channels
+  NUM_CHANNELS,		//number of channels
   adccallback,		//adc callback function
   adcerrcallback,	//error callback function
   /* HW dependent part.*/
@@ -91,7 +98,7 @@ static const ADCConversionGroup adcgrpcfg = {
 //  ADC_SQR1_SQ15_N(ADC_CHANNEL_IN15) |
 //  ADC_SQR1_SQ14_N(ADC_CHANNEL_IN14) |
 //  ADC_SQR1_SQ13_N(ADC_CHANNEL_IN13) |
-  ADC_SQR1_NUM_CH(1),
+  ADC_SQR1_NUM_CH(NUM_CHANNELS),
   //SQR2 register
 //  ADC_SQR2_SQ12_N(ADC_CHANNEL_IN12) |
 //  ADC_SQR2_SQ11_N(ADC_CHANNEL_IN11) |
@@ -105,7 +112,7 @@ static const ADCConversionGroup adcgrpcfg = {
 //  ADC_SQR3_SQ5_N(ADC_CHANNEL_IN8) |
 //  ADC_SQR3_SQ4_N(ADC_CHANNEL_IN8) |
 //  ADC_SQR3_SQ3_N(ADC_CHANNEL_IN7) |
-//  ADC_SQR3_SQ2_N(ADC_CHANNEL_IN2) |
+//  ADC_SQR3_SQ2_N(ADC_CHANNEL_VREFINT) |
   ADC_SQR3_SQ1_N(VO_CHANNEL) |
   0
 };
@@ -141,7 +148,7 @@ static const GPTConfig GPTCfg = {
 };
 
 /*
- *  процесс опроса датчика пыли
+ *  dust sensor read process
  */
 static Thread *pDUSTThread;
 __attribute__((noreturn))
@@ -151,11 +158,11 @@ msg_t DUSTThread(void *arg) {
 	chBSemInit(&dust_cbsem,TRUE);
 
 	while (TRUE) {
-		uint16_t *req;
+		msg_t req;
 		Thread *tp;
 
 		tp = chMsgWait();
-		req = (uint16_t *) chMsgGet(tp);
+		req = chMsgGet(tp);
 		chMsgRelease(tp, (msg_t) req);
 
 		dust_error = DUST_NO_ERROR;
@@ -172,10 +179,6 @@ msg_t DUSTThread(void *arg) {
 		gptPolledDelay(&DUSTGPT, ILED_LAST_US);
 		palSetPad(ILED_GPIO, ILED_PIN);
 		chBSemSignal(&adcsem);
-
-		if (dust_error == DUST_NO_ERROR) {
-			*req = samples[0];
-		}
 		chThdSleepMicroseconds(ILED_SLEEP_US);
 	}
 }
@@ -198,10 +201,10 @@ void dust_init(void){
 }
 
 dust_error_t dust_read(dust_read_t *value) {
-	uint16_t raw = 0;
+	msg_t msg;
 	chBSemWait(&adcsem); /* to be sure */
 
-	chMsgSend(pDUSTThread, (msg_t) &raw);
+	chMsgSend(pDUSTThread, (msg_t) &msg);
 
 	/* wait for reply */
 	if(chBSemWaitTimeout(&adcsem, MS2ST(DUST_TIMEOUT_MS)) == RDY_TIMEOUT) {
@@ -209,8 +212,8 @@ dust_error_t dust_read(dust_read_t *value) {
 	}
 	chBSemReset(&adcsem, FALSE);
 	if (dust_error == DUST_NO_ERROR){
-		value->raw = raw;
-		value->voltage = raw * (3.3 / 4096.0);
+		value->raw = samples[DUST_CH];
+		value->voltage = samples[DUST_CH] * 3.25 / 4096.0;	// VREF = 3.25V
 		// linear eqaution taken from http://www.howmuchsnow.com/arduino/airquality/
 		// Chris Nafis (c) 2012
 		// Dust Density, mg/m3
