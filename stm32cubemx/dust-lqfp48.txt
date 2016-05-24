@@ -1,6 +1,6 @@
 Configuration	dust-lqfp48
 STM32CubeMX 	4.9.0
-Date	05/22/2016
+Date	05/24/2016
 MCU	STM32F103C8Tx
 
 
@@ -14,6 +14,7 @@ RCC	Crystal/Ceramic Resonator	RCC_OSC32_OUT	PC15-OSC32_OUT
 SYS	Trace-Asynchronous_SW	SYS_JTMS-SWDIO	PA13
 SYS	Trace-Asynchronous_SW	SYS_JTCK-SWCLK	PA14
 SYS	Trace-Asynchronous_SW	SYS_JTDO-TRACESWO	PB3
+TIM3	Internal Clock	TIM3_VS_ClockSourceINT	VP_TIM3_VS_ClockSourceINT
 USART1	Asynchronous	USART1_RX	PA10
 USART1	Asynchronous	USART1_TX	PA9
 

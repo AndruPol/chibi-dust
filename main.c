@@ -20,6 +20,7 @@
 #include "hal.h"
 #include "shell.h"
 #include "chprintf.h"
+#include "dust.h"
 
 /*===========================================================================*/
 /* Command line related.                                                     */
@@ -42,6 +43,7 @@ static void cmd_mem(BaseSequentialStream *chp, int argc, char *argv[]) {
   chprintf(chp, "heap free total  : %u bytes\r\n", size);
 }
 
+#if 0
 static void cmd_threads(BaseSequentialStream *chp, int argc, char *argv[]) {
   static const char *states[] = {THD_STATE_NAMES};
   Thread *tp;
@@ -61,10 +63,11 @@ static void cmd_threads(BaseSequentialStream *chp, int argc, char *argv[]) {
     tp = chRegNextThread(tp);
   } while (tp != NULL);
 }
+#endif
 
 static const ShellCommand commands[] = {
   {"mem", cmd_mem},
-  {"threads", cmd_threads},
+//  {"threads", cmd_threads},
   {NULL, NULL}
 };
 
@@ -80,8 +83,8 @@ static const ShellConfig shell_cfg1 = {
 /*
  * Red LEDs blinker thread, times are in milliseconds.
  */
-static WORKING_AREA(waThread1, 128);
-static msg_t Thread1(void *arg) {
+static WORKING_AREA(waLEDThread, 128);
+static msg_t LEDThread(void *arg) {
 
   (void)arg;
   chRegSetThreadName("blinker");
@@ -125,7 +128,12 @@ int main(void) {
   /*
    * Creates the blinker thread.
    */
-  chThdCreateStatic(waThread1, sizeof(waThread1), NORMALPRIO, Thread1, NULL);
+  chThdCreateStatic(waLEDThread, sizeof(waLEDThread), NORMALPRIO, LEDThread, NULL);
+
+  /*
+   * Creates the dust sensor read thread.
+   */
+  dust_init();
 
   /*
    * Normal main() thread activity, in this demo it does nothing except
@@ -138,7 +146,14 @@ int main(void) {
       chThdRelease(shelltp);    /* Recovers memory of the previous shell.   */
       shelltp = NULL;           /* Triggers spawning of a new shell.        */
     }
-    chThdSleepMilliseconds(1000);
+    dust_read_t dust;
+	if (DUST_NO_ERROR == dust_read(&dust)) {
+		chprintf((BaseSequentialStream *)&SD1, "dust raw: %u, voltage: %.2f, density: %.2f\r\n",
+				dust.raw, (float)dust.voltage, (float)0.17 * dust.voltage - 0.1);
+	} else {
+		chprintf((BaseSequentialStream *)&SD1, "dust read error\r\n");
+	}
+    chThdSleepMilliseconds(500);
   }
   return 0;
 }
