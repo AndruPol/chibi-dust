@@ -33,7 +33,7 @@
 #define ILED_SLEEP_US			9680	// datasheet: 10mS = ILED_START_US + ILED_LAST_US + ILED_SLEEP_US
 
 #define DUST_TIMEOUT_MS			2
-#define ADC_TIMEOUT_US			10
+#define ADC_TIMEOUT_US			20
 
 #define ILED_GPIO				GPIOB			// LED on/off
 #define ILED_PIN				GPIOB_PIN13		// LED on/off
@@ -44,8 +44,9 @@
 
 #define DUSTGPT					GPTD3		// Timer, precision interval
 
-#define NUM_CHANNELS			1
+#define NUM_CHANNELS			2
 #define DUST_CH					0
+#define VREFINT_CH				1
 
 BinarySemaphore adcsem;						// ADC share semaphore
 static BinarySemaphore dust_cbsem;			// ADC read semaphore
@@ -69,10 +70,10 @@ static const ADCConversionGroup adcgrpcfg = {
   adccallback,		//adc callback function
   adcerrcallback,	//error callback function
   /* HW dependent part.*/
-  0,	//cr1
-  0,	//cr2
+  0,		//cr1
+  ADC_CR2_TSVREFE,	//cr2
   //SMPR1 register
-//  ADC_SMPR1_SMP_VREF(ADC_SAMPLE_239P5) |
+  ADC_SMPR1_SMP_VREF(ADC_SAMPLE_71P5) |
 //  ADC_SMPR1_SMP_SENSOR(ADC_SAMPLE_239P5) |
 //  ADC_SMPR1_SMP_AN15(ADC_SAMPLE_239P5) |
 //  ADC_SMPR1_SMP_AN14(ADC_SAMPLE_239P5) |
@@ -112,7 +113,7 @@ static const ADCConversionGroup adcgrpcfg = {
 //  ADC_SQR3_SQ5_N(ADC_CHANNEL_IN8) |
 //  ADC_SQR3_SQ4_N(ADC_CHANNEL_IN8) |
 //  ADC_SQR3_SQ3_N(ADC_CHANNEL_IN7) |
-//  ADC_SQR3_SQ2_N(ADC_CHANNEL_VREFINT) |
+  ADC_SQR3_SQ2_N(ADC_CHANNEL_VREFINT) |
   ADC_SQR3_SQ1_N(VO_CHANNEL) |
   0
 };
@@ -212,8 +213,9 @@ dust_error_t dust_read(dust_read_t *value) {
 	}
 	chBSemReset(&adcsem, FALSE);
 	if (dust_error == DUST_NO_ERROR){
+		float vref = (float) 1.2 * 4096.0 / samples[VREFINT_CH];
 		value->raw = samples[DUST_CH];
-		value->voltage = samples[DUST_CH] * 3.25 / 4096.0;	// VREF = 3.25V
+		value->voltage = samples[DUST_CH] * vref / 4096.0;
 		// linear eqaution taken from http://www.howmuchsnow.com/arduino/airquality/
 		// Chris Nafis (c) 2012
 		// Dust Density, mg/m3

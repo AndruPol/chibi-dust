@@ -149,7 +149,7 @@ int main(void) {
     dust_read_t dust;
 	if (DUST_NO_ERROR == dust_read(&dust)) {
 		chprintf((BaseSequentialStream *)&SD1, "dust raw: %u, voltage: %.2f, density: %.2f\r\n",
-				dust.raw, (float)dust.voltage, (float)0.17 * dust.voltage - 0.1);
+				dust.raw, (float)dust.voltage, (float)0.17 * dust.voltage);
 	} else {
 		chprintf((BaseSequentialStream *)&SD1, "dust read error\r\n");
 	}
